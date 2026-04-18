@@ -38,7 +38,7 @@
         // ==========================================
         // 1. TEMPELKAN API KEY GEMINI ANDA DI SINI
         // ==========================================
-        // (Wajib diisi sebelum deploy ke Vercel agar tidak Error 400)
+        // (Wajib diisi sebelum deploy ke Vercel. Pastikan tidak ada spasi)
         const defaultApiKey = ""; 
 
         // ==========================================
@@ -331,7 +331,7 @@
                 reader.onerror = reject;
             });
 
-            // FUNGSI UTAMA AI DENGAN DIAGNOSIS ERROR YANG LENGKAP
+            // FUNGSI UTAMA AI (DENGAN HTML ERROR DIAGNOSIS YANG LEBIH INFORMATIF)
             const callGeminiAI = async (prompt, audioData = null) => {
                 let retries = 0; 
                 const maxRetries = 5; 
@@ -351,29 +351,28 @@
                         });
                         
                         if (!response.ok) {
-                            // Mengambil pesan asli dari server Google
                             const errData = await response.json().catch(() => ({}));
                             const errMsg = errData.error?.message || response.statusText;
                             
-                            // Diagnosis khusus Error 400
+                            // Diagnosis Khusus Error 400 (Kunci Salah)
                             if (response.status === 400) {
                                 if (errMsg.toLowerCase().includes("api key not valid")) {
-                                    throw new Error("Kunci API Anda SALAH atau TIDAK VALID. Silakan buat Kunci API baru di aistudio.google.com dan pastikan tidak ada spasi saat dicopy.");
+                                    throw new Error("<b>Kunci API Anda SALAH atau TIDAK VALID.</b><br/><br/>Pastikan Anda sudah mengisi variabel <code>defaultApiKey</code> di dalam kode dengan benar (tanpa ada spasi kosong yang ikut tercopy).");
                                 }
-                                throw new Error(`Format audio ditolak oleh AI (Error 400). Detail: ${errMsg}`);
+                                throw new Error(`<b>Format audio ditolak (Error 400).</b><br/><br/>Detail: ${errMsg}`);
                             }
                             
-                            // Diagnosis Khusus Error 403
+                            // Diagnosis Khusus Error 403 (Diblokir Google)
                             if (response.status === 403) {
-                                throw new Error("Akses Ditolak (Error 403). Kunci API Anda kemungkinan dibatasi di Google Cloud. Silakan ubah Application Restrictions menjadi 'None'.");
+                                throw new Error("<b>Akses Ditolak (Error 403).</b><br/><br/>Kunci API Anda dibatasi penggunaannya oleh Google, sehingga Vercel tidak bisa mengaksesnya.<br/><br/><b>CARA MEMPERBAIKI:</b><br/>1. Buka <a href='https://console.cloud.google.com/apis/credentials' target='_blank' style='color:#38bdf8;text-decoration:underline;'>Google Cloud Console</a><br/>2. Klik nama Kunci API Anda.<br/>3. Pada bagian <i>Application restrictions</i>, pilih <b>None</b>.<br/>4. Klik Save dan tunggu 5 menit.");
                             }
 
-                            // Diagnosis Khusus Error 429
+                            // Diagnosis Khusus Error 429 (Limit Habis)
                             if (response.status === 429) {
-                                throw new Error("Limit Kuota API Habis (Error 429). Silakan tunggu 1 menit lalu coba lagi.");
+                                throw new Error("<b>Limit Kuota Habis (Error 429).</b><br/><br/>Jatah API Key gratis Anda (15x proses/menit) telah penuh. Silakan tunggu sekitar 1 menit lalu coba klik proses kembali.");
                             }
                             
-                            throw new Error(`API error ${response.status}: ${errMsg}`);
+                            throw new Error(`<b>API error ${response.status}</b><br/>${errMsg}`);
                         }
                         
                         const result = await response.json();
@@ -381,11 +380,11 @@
                     } catch (error) {
                         retries++;
                         
-                        // JANGAN ulangi (retry) jika error disebabkan oleh masalah fatal seperti kunci salah atau dilarang
+                        // JANGAN ulangi jika error fatal (salah kunci atau diblokir)
                         if (error.message.includes("SALAH atau TIDAK VALID") || 
                             error.message.includes("Akses Ditolak") || 
                             error.message.includes("Format audio ditolak") ||
-                            error.message.includes("Limit Kuota API")) {
+                            error.message.includes("Limit Kuota")) {
                             throw error;
                         }
 
@@ -611,6 +610,7 @@
                         <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] bg-cyan-900/10 rounded-full blur-[100px]"></div>
                     </div>
 
+                    {/* MODAL ERROR DENGAN HTML SUPORT (PENTING) */}
                     {alertMessage && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md">
                             <div className="bg-[#1e293b] border border-slate-600 rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in fade-in zoom-in duration-200">
@@ -618,7 +618,7 @@
                                     <i className="ph-fill ph-warning-circle text-2xl"></i>
                                     <h3 className="font-bold text-lg text-white">Informasi Sistem</h3>
                                 </div>
-                                <p className="text-slate-300 mb-6 leading-relaxed">{alertMessage}</p>
+                                <div className="text-slate-300 mb-6 leading-relaxed text-sm" dangerouslySetInnerHTML={{ __html: alertMessage }}></div>
                                 <button onClick={() => setAlertMessage(null)} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 rounded-xl transition-colors">
                                     Mengerti
                                 </button>
@@ -748,9 +748,9 @@
                                             onChange={(e) => setAiModel(e.target.value)}
                                             className="bg-slate-800 text-cyan-300 text-sm border border-slate-600 rounded-xl px-4 py-2 outline-none focus:border-cyan-500 transition-colors w-full md:w-auto cursor-pointer"
                                         >
-                                            <option value="gemini-2.0-flash">Gemini 2.0 Flash (Disarankan)</option>
+                                            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
                                             <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                                            <option value="gemini-2.5-flash-preview-09-2025">Gemini 2.5 Preview</option>
+                                            <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
                                         </select>
                                     </div>
 
