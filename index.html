@@ -55,7 +55,7 @@
           const [authStatus, setAuthStatus] = useState({ loading: false, error: '' });
           
           const [dynamicApiKey, setDynamicApiKey] = useState("");
-          const [aiModel, setAiModel] = useState("gemini-1.5-flash"); // Default diubah ke 1.5 agar lebih hemat kuota
+          const [aiModel, setAiModel] = useState("gemini-2.0-flash"); // Default dikembalikan ke 2.0 agar tidak error 404
 
           // --- STATE APLIKASI UTAMA ---
           const [activeTab, setActiveTab] = useState('create'); 
@@ -340,6 +340,9 @@
                   if (response.status === 403) {
                     throw new Error("<b>Akses Ditolak (Error 403).</b> Atur Application Restrictions menjadi 'None' di Google Cloud.");
                   }
+                  if (response.status === 404) {
+                    throw new Error("<b>Mesin AI Tidak Ditemukan (Error 404).</b><br/><br/>Versi Gemini yang dipilih saat ini tidak didukung atau sedang tidak tersedia untuk Kunci API Anda. Silakan ganti <b>Versi Mesin AI Gemini</b> di layar ke pilihan lain (misal: Gemini 2.0 Flash).");
+                  }
                   if (response.status === 429) {
                     throw new Error("ERROR_429"); // Kode khusus untuk ditangkap di blok catch
                   }
@@ -352,7 +355,7 @@
                 retries++;
                 
                 // Jangan ulangi jika error fatal
-                if (error.message.includes("Kunci API Masih Kosong") || error.message.includes("SALAH") || error.message.includes("Akses Ditolak")) {
+                if (error.message.includes("Kunci API Masih Kosong") || error.message.includes("SALAH") || error.message.includes("Akses Ditolak") || error.message.includes("Error 404")) {
                   throw error;
                 }
 
@@ -727,8 +730,8 @@
                           onChange={(e) => setAiModel(e.target.value)}
                           className="bg-slate-800 text-cyan-300 text-sm border border-slate-600 rounded-xl px-4 py-2 outline-none focus:border-cyan-500 transition-colors w-full md:w-auto cursor-pointer"
                         >
-                          <option value="gemini-1.5-flash">Gemini 1.5 Flash (Cepat & Ringan)</option>
                           <option value="gemini-2.0-flash">Gemini 2.0 Flash (Seimbang & Optimal)</option>
+                          <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Cepat & Ringan)</option>
                           <option value="gemini-2.5-flash-preview-09-2025">Gemini 2.5 Preview (Tercanggih)</option>
                         </select>
                       </div>
