@@ -36,9 +36,11 @@
     <script type="text/babel">
         const { useState, useRef, useEffect } = React;
 
-        // --- KONFIGURASI API & MODEL ---
-        const defaultApiKey = "AIzaSyBvv3gOZUszX3GoLt-g4PN1VdMP6d7wYTY"; // API Key bawaan Gemini Anda
-        const GEN_MODEL = "gemini-2.5-flash-preview-09-2025";
+        // ==========================================
+        // 1. TEMPELKAN API KEY GEMINI ANDA DI SINI
+        // ==========================================
+        // (Wajib diisi dengan kunci API baru yang belum limit)
+        const defaultApiKey = ""; 
 
         // --- KONFIGURASI GOOGLE SHEETS & WA ADMIN ---
         const GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbwan8bQO_lmnVrgnUga1401_VDzr0Odq6jvkeFM93TLUrqEwGMGQbjY6R87AxHWor7yCg/exec";
@@ -53,7 +55,7 @@
           const [authStatus, setAuthStatus] = useState({ loading: false, error: '' });
           
           const [dynamicApiKey, setDynamicApiKey] = useState("");
-          const [aiModel, setAiModel] = useState("gemini-2.0-flash"); 
+          const [aiModel, setAiModel] = useState("gemini-1.5-flash"); // Default diubah ke 1.5 agar lebih hemat kuota
 
           // --- STATE APLIKASI UTAMA ---
           const [activeTab, setActiveTab] = useState('create'); 
@@ -307,10 +309,16 @@
 
           const callGeminiAI = async (prompt, audioData = null) => {
             let retries = 0; 
-            const maxRetries = 8; // Diperbesar agar bisa mengantre selama 1 menit
+            const maxRetries = 8; 
             const delays = [5000, 10000, 15000, 20000, 20000, 20000, 20000, 20000];
             const activeApiKey = (dynamicApiKey || defaultApiKey || "").trim();
             const effectiveModel = activeApiKey === "" ? "gemini-2.5-flash-preview-09-2025" : aiModel;
+
+            // CEK KHUSUS VERCEL: Cegah Error 400 membingungkan jika Key Kosong
+            const isCanvasEnvironment = window.location.hostname.includes("google.com") || window.location.hostname === "";
+            if (activeApiKey === "" && !isCanvasEnvironment) {
+              throw new Error("<b>Kunci API Masih Kosong!</b><br/><br/>Aplikasi mendeteksi Anda menjalankannya di Vercel, tetapi variabel <code>defaultApiKey</code> di dalam kode masih dibiarkan kosong.<br/><br/>Silakan isi Kunci API Anda di file kode lalu deploy ulang.");
+            }
 
             const contents = [{ parts: [{ text: prompt }] }];
             if (audioData) contents[0].parts.push({ inlineData: { mimeType: audioFile.type || "audio/mpeg", data: audioData }});
@@ -343,15 +351,15 @@
               } catch (error) {
                 retries++;
                 
-                // Jangan ulangi jika error fatal (salah kunci atau diblokir)
-                if (error.message.includes("SALAH") || error.message.includes("Akses Ditolak")) {
+                // Jangan ulangi jika error fatal
+                if (error.message.includes("Kunci API Masih Kosong") || error.message.includes("SALAH") || error.message.includes("Akses Ditolak")) {
                   throw error;
                 }
 
-                // Jika error 429 (Limit Kuota), lakukan tunggu diam-diam (Silent Retry)
+                // Jika error 429 (Limit Kuota), tunggu diam-diam
                 if (error.message === "ERROR_429") {
                   if (retries === maxRetries) {
-                    throw new Error("<b>Server Sedang Penuh (Error 429).</b><br/><br/>Jatah API gratis Anda sudah melampaui batas. Silakan coba lagi dalam 1 atau 2 menit ke depan.");
+                    throw new Error("<b>Server Sedang Penuh (Error 429).</b><br/><br/>Jatah API gratis Anda sudah melampaui batas hari ini. Gunakan Kunci API dari akun Google lain yang masih fresh.");
                   }
                   setStatusMessage(`Menunggu antrean server (Tahap ${retries})...`);
                   await new Promise(res => setTimeout(res, delays[retries - 1]));
