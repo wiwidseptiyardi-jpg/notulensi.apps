@@ -44,7 +44,6 @@
         // ==========================================
         // KONFIGURASI WEBHOOK GOOGLE SCRIPT & ADMIN WA
         // ==========================================
-        // PASTE-KAN URL DEPLOYMENT BARU GOOGLE APPS SCRIPT ANDA DI SINI
         const GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbw3o0dC843svVbltYm8yX9Xhvp1JFfQ72j_z8AjaRKfNrifDwBtMc2BBmjhsyGduDrOCA/exec";
         const ADMIN_WA_NUMBER = "6287838960454"; 
 
@@ -344,7 +343,7 @@
 
           // =========================================================================
           // ARSITEKTUR AMAN TINGKAT TINGGI: MEMANGGIL AI MELALUI GOOGLE APPS SCRIPT
-          // (Kunci API disembunyikan di server backend Google, aman dari GitHub/Vercel)
+          // (Dilengkapi penanganan Error Referrer / 403 Google Cloud)
           // =========================================================================
           const callGeminiAI = async (prompt, audioData = null) => {
             let retries = 0; 
@@ -383,13 +382,20 @@
                 const resData = await response.json();
 
                 if (!resData.success) {
-                   if (resData.error && resData.error.includes("429")) {
+                   const errorStr = resData.error || "";
+                   
+                   if (errorStr.includes("429")) {
                       throw new Error("ERROR_429");
                    }
-                   if (resData.error && (resData.error.includes("bocor") || resData.error.includes("leaked"))) {
+                   if (errorStr.includes("bocor") || errorStr.includes("leaked")) {
                       throw new Error("<b>Kunci API Bocor / Diblokir!</b><br/><br/>Kunci API yang Anda letakkan di Google Apps Script sudah diblokir oleh Google karena terdeteksi bocor di internet.<br/><br/><b>SOLUSI:</b> Buat kunci baru di Google AI Studio dan perbarui di file <code>Code.gs</code> Anda.");
                    }
-                   throw new Error(resData.error || "Gagal memproses data AI di server backend Google.");
+                   // MENANGKAP ERROR REFERRER (Gambar Error Vercel Pengguna)
+                   if (errorStr.includes("REFERRER_BLOCKED") || errorStr.includes("referer") || errorStr.includes("empty")) {
+                      throw new Error("<b>Pengaturan API Key Anda Terlalu Ketat (Error 403).</b><br/><br/>Kunci API di <i>Google Apps Script</i> Anda saat ini menolak akses karena masih dibatasi untuk *Websites* tertentu.<br/><br/><b>SOLUSI:</b><br/>1. Buka <b>Google Cloud Console</b>.<br/>2. Cari dan klik API Key Anda.<br/>3. Ubah <i>Application restrictions</i> menjadi <b>None</b>.<br/>4. Simpan, tunggu 5 menit, dan coba lagi.");
+                   }
+
+                   throw new Error(errorStr || "Gagal memproses data AI di server backend Google.");
                 }
 
                 return resData.text; 
@@ -397,7 +403,8 @@
               } catch (error) {
                 retries++;
                 
-                if (error.message.includes("Belum Diatur") || error.message.includes("Bocor") || error.message.includes("tidak valid")) {
+                // Jangan ulangi loop untuk error fatal
+                if (error.message.includes("Belum Diatur") || error.message.includes("Bocor") || error.message.includes("tidak valid") || error.message.includes("Terlalu Ketat")) {
                   throw error;
                 }
 
@@ -495,7 +502,7 @@
                   </div>
 
                   <form onSubmit={handleLogin} className="space-y-5">
-                    {authStatus.error && <div className="p-3 bg-red-500/10 border border-red-500/50 text-red-400 rounded-lg text-sm text-center font-medium leading-relaxed">{authStatus.error}</div>}
+                    {authStatus.error && <div className="p-3 bg-red-500/10 border border-red-500/50 text-red-400 rounded-lg text-sm text-center font-medium leading-relaxed" dangerouslySetInnerHTML={{ __html: authStatus.error }}></div>}
                     
                     <div>
                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Email Address</label>
@@ -529,7 +536,7 @@
             );
           }
 
-          // --- HALAMAN REGISTRASI ---
+          // --- HAL halaman REGISTRASI ---
           if (!user && currentView === 'signup') {
             return (
               <div className="min-h-screen bg-[#0a0f1d] flex items-center justify-center p-4 relative overflow-hidden font-sans">
@@ -545,7 +552,7 @@
                   </div>
 
                   <form onSubmit={handleSignup} className="space-y-4">
-                    {authStatus.error && <div className="p-3 bg-red-500/10 border border-red-500/50 text-red-400 rounded-lg text-sm text-center font-medium leading-relaxed">{authStatus.error}</div>}
+                    {authStatus.error && <div className="p-3 bg-red-500/10 border border-red-500/50 text-red-400 rounded-lg text-sm text-center font-medium leading-relaxed" dangerouslySetInnerHTML={{ __html: authStatus.error }}></div>}
                     
                     <div>
                       <div className="relative">
