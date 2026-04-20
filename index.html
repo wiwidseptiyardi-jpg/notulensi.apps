@@ -21,6 +21,11 @@
     <!-- Babel untuk Compile JSX di Browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- FIREBASE SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
     <style>
         .custom-scrollbar::-webkit-scrollbar { width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); border-radius: 10px; }
@@ -39,23 +44,41 @@
         // ==========================================
         // 1. TEMPELKAN API KEY GEMINI ANDA DI SINI
         // ==========================================
-        // (Wajib diisi dengan kunci API baru yang belum limit)
-        const defaultApiKey = "AIzaSyBvv3gOZUszX3GoLt-g4PN1VdMP6d7wYTY"; 
+        const defaultApiKey = ""; 
 
         // --- KONFIGURASI GOOGLE SHEETS & WA ADMIN ---
         const GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbwan8bQO_lmnVrgnUga1401_VDzr0Odq6jvkeFM93TLUrqEwGMGQbjY6R87AxHWor7yCg/exec";
         const ADMIN_WA_NUMBER = "6287838960454"; 
 
+        // ==========================================
+        // KONFIGURASI FIREBASE CLOUD DATABASE
+        // ==========================================
+        const firebaseConfig = {
+          apiKey: "AIzaSyDIFoeUci332xSwxiBbO4_ahSwnjtTEEyA",
+          authDomain: "notulensi-9e39d.firebaseapp.com",
+          projectId: "notulensi-9e39d",
+          storageBucket: "notulensi-9e39d.firebasestorage.app",
+          messagingSenderId: "600963416044",
+          appId: "1:600963416044:web:8e294ca558915c9d184ac9"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const appId = 'notulensi-ai-app';
+
         function App() {
-          // --- STATE AUTENTIKASI (LOCAL STORAGE) ---
+          // --- STATE AUTENTIKASI (FIREBASE) ---
           const [user, setUser] = useState(null);
           const [authLoading, setAuthLoading] = useState(true);
           const [currentView, setCurrentView] = useState('login'); 
           const [authForm, setAuthForm] = useState({ name: '', email: '', password: '', accessCode: '' });
-          const [authStatus, setAuthStatus] = useState({ loading: false, error: '' });
+          const [authStatus, setAuthStatus] = useState({ loading: false, error: '', success: '' });
           
           const [dynamicApiKey, setDynamicApiKey] = useState("");
-          const [aiModel, setAiModel] = useState("gemini-2.0-flash"); // Default dikembalikan ke 2.0 agar tidak error 404
+          const [aiModel, setAiModel] = useState("gemini-2.0-flash"); 
 
           // --- STATE APLIKASI UTAMA ---
           const [activeTab, setActiveTab] = useState('create'); 
@@ -77,16 +100,23 @@
           const [alertMessage, setAlertMessage] = useState(null);
           const reportRef = useRef(null);
 
-          // --- INITIALIZATION (CEK LOCAL STORAGE) ---
+          // --- INITIALIZATION (FIREBASE AUTH) ---
           useEffect(() => {
-            const savedSession = localStorage.getItem('notulensi_user');
-            if (savedSession) {
-              setUser(JSON.parse(savedSession));
-              setCurrentView('app');
-            } else {
-              setCurrentView('login');
-            }
-            setAuthLoading(false);
+            const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+              if (currentUser) {
+                setUser({ 
+                    uid: currentUser.uid, 
+                    email: currentUser.email, 
+                    name: currentUser.displayName || authForm.name || "Pengguna" 
+                });
+                setCurrentView('app');
+                setAuthStatus({ loading: false, error: '', success: '' });
+              } else {
+                setUser(null);
+                setCurrentView('login');
+              }
+              setAuthLoading(false);
+            });
 
             const fetchDynamicApiKey = async () => {
               try {
@@ -100,57 +130,63 @@
               }
             };
             fetchDynamicApiKey();
+
+            return () => unsubscribe();
           }, []);
 
-          // --- FETCH RIWAYAT DARI LOCAL STORAGE ---
+          // --- FETCH RIWAYAT DARI FIREBASE CLOUD ---
           useEffect(() => {
             if (!user) return;
             setIsLoadingHistory(true);
             
-            const localHistory = JSON.parse(localStorage.getItem(`notulensi_history_${user.email}`) || '[]');
-            setHistoryRecords(localHistory);
-            
-            setIsLoadingHistory(false);
+            const recordsRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('notulensi_records');
+            const unsubscribe = recordsRef.onSnapshot((snapshot) => {
+                const records = [];
+                snapshot.forEach((doc) => {
+                    records.push({ id: doc.id, ...doc.data() });
+                });
+                
+                records.sort((a, b) => {
+                    const timeA = a.savedAt?.toMillis() || 0;
+                    const timeB = b.savedAt?.toMillis() || 0;
+                    return timeB - timeA;
+                });
+                
+                setHistoryRecords(records);
+                setIsLoadingHistory(false);
+            }, (error) => {
+                console.error("Fetch history error:", error);
+                setIsLoadingHistory(false);
+            });
+
+            return () => unsubscribe();
           }, [user]);
 
           // --- HANDLER AUTENTIKASI ---
           const handleAuthInputChange = (e) => {
             setAuthForm({ ...authForm, [e.target.name]: e.target.value });
-            setAuthStatus({ loading: false, error: '' });
+            setAuthStatus({ loading: false, error: '', success: '' });
           };
 
-          const handleLogin = (e) => {
+          const handleLogin = async (e) => {
             e.preventDefault();
-            setAuthStatus({ loading: true, error: '' });
+            setAuthStatus({ loading: true, error: '', success: '' });
             
-            setTimeout(() => {
-              const users = JSON.parse(localStorage.getItem('notulensi_registered_users') || '[]');
-              const foundUser = users.find(u => u.email === authForm.email && u.password === authForm.password);
-              
-              if (foundUser) {
-                const sessionUser = { id: foundUser.id, name: foundUser.name, email: foundUser.email };
-                localStorage.setItem('notulensi_user', JSON.stringify(sessionUser));
-                setUser(sessionUser);
-                setCurrentView('app');
-                setAuthStatus({ loading: false, error: '' });
-              } else {
-                setAuthStatus({ loading: false, error: 'Email atau Password salah!' });
-              }
-            }, 600);
+            try {
+                await auth.signInWithEmailAndPassword(authForm.email, authForm.password);
+            } catch (error) {
+                let errorMsg = "Login gagal: Email atau password salah.";
+                if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') errorMsg = 'Email atau password yang Anda masukkan salah.';
+                if (error.code === 'auth/user-not-found') errorMsg = 'Akun tidak ditemukan. Silakan registrasi terlebih dahulu.';
+                setAuthStatus({ loading: false, error: errorMsg, success: '' });
+            }
           };
 
           const handleSignup = async (e) => {
             e.preventDefault();
-            setAuthStatus({ loading: true, error: '' });
+            setAuthStatus({ loading: true, error: '', success: '' });
 
-            // 1. Cek apakah email sudah terdaftar di Local Storage
-            const users = JSON.parse(localStorage.getItem('notulensi_registered_users') || '[]');
-            if (users.find(u => u.email === authForm.email)) {
-               setAuthStatus({ loading: false, error: 'Email ini sudah terdaftar. Silakan Login.' });
-               return;
-            }
-            
-            // 2. Verifikasi Kode Akses ke Google Sheets
+            // 1. Verifikasi Kode Akses ke Google Sheets
             let isCodeValid = false;
             try {
               const verifyUrl = `${GOOGLE_SHEETS_WEBHOOK}?action=verifyCode&code=${encodeURIComponent(authForm.accessCode)}`;
@@ -171,45 +207,65 @@
             }
 
             if (!isCodeValid) {
-              setAuthStatus({ loading: false, error: 'Kode Akses salah atau tidak valid! Silakan hubungi Admin.' });
+              setAuthStatus({ loading: false, error: 'Kode Akses salah atau tidak valid! Silakan hubungi Admin.', success: '' });
               return;
             }
 
-            // 3. Simpan Pengguna Baru ke Local Storage
-            const newUser = {
-              id: 'local_' + Date.now(),
-              name: authForm.name,
-              email: authForm.email,
-              password: authForm.password
-            };
-            users.push(newUser);
-            localStorage.setItem('notulensi_registered_users', JSON.stringify(users));
-
-            // 4. Rekap Data Pengguna ke Google Sheets (Berjalan di latar belakang)
             try {
-              const syncUrl = `${GOOGLE_SHEETS_WEBHOOK}?action=register&name=${encodeURIComponent(newUser.name)}&email=${encodeURIComponent(newUser.email)}&date=${encodeURIComponent(new Date().toLocaleString('id-ID'))}&uid=${encodeURIComponent(newUser.id)}`;
-              fetch(syncUrl, { mode: 'no-cors' }); 
-            } catch (sheetErr) {
-              console.warn("Gagal merekap ke Google Sheets.", sheetErr);
+                // 2. Daftar Akun di Firebase
+                const userCredential = await auth.createUserWithEmailAndPassword(authForm.email, authForm.password);
+                const newUser = userCredential.user;
+
+                // 3. Simpan Nama Profil
+                await newUser.updateProfile({ displayName: authForm.name });
+
+                // 4. Buat Database Profil di Firestore
+                await db.collection('artifacts').doc(appId).collection('users').doc(newUser.uid).collection('profile').doc('data').set({
+                    name: authForm.name,
+                    email: authForm.email,
+                    role: 'user',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                // 5. Rekap Data Pengguna ke Google Sheets (Berjalan di latar belakang)
+                try {
+                  const syncUrl = `${GOOGLE_SHEETS_WEBHOOK}?action=register&name=${encodeURIComponent(authForm.name)}&email=${encodeURIComponent(authForm.email)}&date=${encodeURIComponent(new Date().toLocaleString('id-ID'))}&uid=${encodeURIComponent(newUser.uid)}`;
+                  fetch(syncUrl, { mode: 'no-cors' }); 
+                } catch (sheetErr) {
+                  console.warn("Gagal merekap ke Google Sheets.", sheetErr);
+                }
+
+                setAuthStatus({ loading: false, error: '', success: '' });
+            } catch (error) {
+                let errorMsg = `Gagal: ${error.message}`;
+                if (error.code === 'auth/email-already-in-use') errorMsg = 'Email ini sudah terdaftar. Silakan gunakan email lain atau Login.';
+                if (error.code === 'auth/weak-password') errorMsg = 'Password terlalu lemah (Minimal 6 karakter).';
+                setAuthStatus({ loading: false, error: errorMsg, success: '' });
             }
-
-            // 5. Simpan Sesi & Masuk Aplikasi (Auto Login)
-            const sessionUser = { id: newUser.id, name: newUser.name, email: newUser.email };
-            localStorage.setItem('notulensi_user', JSON.stringify(sessionUser));
-            setUser(sessionUser);
-            setCurrentView('app');
-            setAuthStatus({ loading: false, error: '' });
           };
 
-          const handleLogout = () => {
-            localStorage.removeItem('notulensi_user');
-            setUser(null);
-            setAuthForm({ name: '', email: '', password: '', accessCode: '' });
-            setCurrentView('login');
+          const handleForgotPassword = async (e) => {
+              e.preventDefault();
+              setAuthStatus({ loading: true, error: '', success: '' });
+              try {
+                  await auth.sendPasswordResetEmail(authForm.email);
+                  setAuthStatus({ loading: false, error: '', success: 'Tautan reset password telah dikirim ke email Anda. Silakan cek Inbox/Spam.' });
+              } catch (error) {
+                  setAuthStatus({ loading: false, error: 'Gagal mengirim email reset. Pastikan email terdaftar di sistem.', success: '' });
+              }
           };
 
-          // --- HANDLER SIMPAN KE LOCAL STORAGE ---
-          const handleSaveLocal = () => {
+          const handleLogout = async () => {
+            try {
+                await auth.signOut();
+                setAuthForm({ name: '', email: '', password: '', accessCode: '' });
+            } catch (error) {
+                console.error("Logout Error", error);
+            }
+          };
+
+          // --- HANDLER SIMPAN KE FIREBASE CLOUD ---
+          const handleSaveToCloud = async () => {
             if (!user) {
               setAlertMessage("Sesi telah habis. Silakan keluar dan masuk kembali.");
               return;
@@ -220,28 +276,21 @@
             }
 
             setIsSaving(true);
-            
-            setTimeout(() => {
-              try {
-                const newRecord = { 
-                  ...formData, 
-                  id: Date.now().toString(),
-                  aiModelUsed: aiModel,
-                  tanggalSimpan: new Date().toLocaleString('id-ID')
-                };
-                
-                const currentHist = JSON.parse(localStorage.getItem(`notulensi_history_${user.email}`) || '[]');
-                const updatedHist = [newRecord, ...currentHist];
-                
-                localStorage.setItem(`notulensi_history_${user.email}`, JSON.stringify(updatedHist));
-                setHistoryRecords(updatedHist);
-                setAlertMessage("Notulensi berhasil disimpan secara aman di perangkat ini (Local Storage).");
-              } catch (error) {
-                setAlertMessage(`Gagal menyimpan data: Memori perangkat penuh.`);
-              } finally {
+            try {
+                const notulensiRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('notulensi_records');
+                await notulensiRef.add({
+                    ...formData,
+                    aiModelUsed: aiModel,
+                    savedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    tanggalSimpan: new Date().toLocaleString('id-ID')
+                });
+                setAlertMessage("Notulensi berhasil disimpan secara aman di Cloud Database.");
+            } catch (error) {
+                console.error("Firebase Save Error: ", error);
+                setAlertMessage(`Gagal menyimpan data: ${error.message}`);
+            } finally {
                 setIsSaving(false);
-              }
-            }, 600);
+            }
           };
 
           // --- HANDLER APLIKASI UTAMA ---
@@ -314,7 +363,6 @@
             const activeApiKey = (dynamicApiKey || defaultApiKey || "").trim();
             const effectiveModel = activeApiKey === "" ? "gemini-2.5-flash-preview-09-2025" : aiModel;
 
-            // CEK KHUSUS VERCEL: Cegah Error 400 membingungkan jika Key Kosong
             const isCanvasEnvironment = window.location.hostname.includes("google.com") || window.location.hostname === "";
             if (activeApiKey === "" && !isCanvasEnvironment) {
               throw new Error("<b>Kunci API Masih Kosong!</b><br/><br/>Aplikasi mendeteksi Anda menjalankannya di Vercel, tetapi variabel <code>defaultApiKey</code> di dalam kode masih dibiarkan kosong.<br/><br/>Silakan isi Kunci API Anda di file kode lalu deploy ulang.");
@@ -344,7 +392,7 @@
                     throw new Error("<b>Mesin AI Tidak Ditemukan (Error 404).</b><br/><br/>Versi Gemini yang dipilih saat ini tidak didukung atau sedang tidak tersedia untuk Kunci API Anda. Silakan ganti <b>Versi Mesin AI Gemini</b> di layar ke pilihan lain (misal: Gemini 2.0 Flash).");
                   }
                   if (response.status === 429) {
-                    throw new Error("ERROR_429"); // Kode khusus untuk ditangkap di blok catch
+                    throw new Error("ERROR_429"); 
                   }
                   throw new Error(`<b>API error ${response.status}</b><br/>${errMsg}`);
                 }
@@ -353,13 +401,10 @@
                 return result.candidates?.[0]?.content?.parts?.[0]?.text;
               } catch (error) {
                 retries++;
-                
-                // Jangan ulangi jika error fatal
                 if (error.message.includes("Kunci API Masih Kosong") || error.message.includes("SALAH") || error.message.includes("Akses Ditolak") || error.message.includes("Error 404")) {
                   throw error;
                 }
 
-                // Jika error 429 (Limit Kuota), tunggu diam-diam
                 if (error.message === "ERROR_429") {
                   if (retries === maxRetries) {
                     throw new Error("<b>Server Sedang Penuh (Error 429).</b><br/><br/>Jatah API gratis Anda sudah melampaui batas hari ini. Gunakan Kunci API dari akun Google lain yang masih fresh.");
@@ -557,12 +602,26 @@
                               <h1 className="text-3xl font-extrabold text-white tracking-wider">Notulensi<span className="text-cyan-400">.AI</span></h1>
                               <p className="text-slate-400 mt-2 text-sm font-medium">Aplikasi Pembuat Notulensi Otomatis</p>
                               <h2 className="text-white mt-6 text-2xl font-bold tracking-wide">Lupa Password</h2>
-                              <p className="text-slate-400 text-sm mt-2">Hubungi admin untuk melakukan reset password akun Anda secara manual.</p>
+                              <p className="text-slate-400 text-sm mt-2">Masukkan email Anda untuk menerima tautan reset password dari Firebase.</p>
                           </div>
 
-                          <div className="space-y-5">
-                              <a href={`https://wa.me/${ADMIN_WA_NUMBER}?text=Halo%20Admin,%20saya%20ingin%20mereset%20password%20akun%20Notulensi.AI%20saya.`} target="_blank" rel="noreferrer" className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 mb-4 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                                  <i className="ph-fill ph-whatsapp-logo text-xl"></i> Hubungi Admin via WhatsApp
+                          <form onSubmit={handleForgotPassword} className="space-y-5">
+                              {authStatus.error && <div className="p-3 bg-red-500/10 border border-red-500/50 text-red-400 rounded-lg text-sm text-center">{authStatus.error}</div>}
+                              {authStatus.success && <div className="p-3 bg-emerald-500/10 border border-emerald-500/50 text-emerald-400 rounded-lg text-sm text-center">{authStatus.success}</div>}
+                              
+                              <div className="relative">
+                                  <i className="ph ph-envelope-simple absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-lg"></i>
+                                  <input type="email" name="email" value={authForm.email} onChange={handleAuthInputChange} required className="w-full bg-[#111827]/80 border border-slate-700/50 text-white rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500" placeholder="Masukkan Email Anda" />
+                              </div>
+
+                              <button type="submit" disabled={authStatus.loading} className="w-full bg-gradient-to-r from-slate-700 to-slate-600 hover:from-slate-600 hover:to-slate-500 text-white font-bold py-3.5 rounded-xl transition-all flex justify-center items-center gap-2">
+                                  {authStatus.loading ? <i className="ph ph-spinner ph-spin text-xl"></i> : <><i className="ph-fill ph-paper-plane-tilt text-lg"></i> Kirim Link Reset</>}
+                              </button>
+                          </form>
+
+                          <div className="mt-4 border-t border-white/10 pt-4">
+                              <a href={`https://wa.me/${ADMIN_WA_NUMBER}?text=Halo%20Admin,%20saya%20ingin%20meminta%20bantuan%20terkait%20akun%20Notulensi.AI%20saya.`} target="_blank" rel="noreferrer" className="w-full bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/40 border border-emerald-600/30 py-2.5 rounded-xl text-xs font-semibold transition-colors flex justify-center items-center gap-2">
+                                  <i className="ph-fill ph-whatsapp-logo text-lg"></i> Bantuan Manual via WhatsApp Admin
                               </a>
                           </div>
 
@@ -607,7 +666,7 @@
                   </div>
                   <div>
                     <h1 className="text-xl font-extrabold text-white tracking-wide">Notulensi<span className="text-cyan-400">.AI</span></h1>
-                    <p className="text-xs text-cyan-500/80 font-mono tracking-widest hidden sm:block">LOCAL_STORAGE_MODE // VER 2.5</p>
+                    <p className="text-xs text-cyan-500/80 font-mono tracking-widest hidden sm:block">FIREBASE_CLOUD_MODE // VER 2.5</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -622,7 +681,7 @@
               <div className="max-w-[1450px] mx-auto relative z-10 flex flex-wrap justify-between items-center mb-6 gap-4">
                 <div className="bg-slate-800/50 p-1 rounded-xl backdrop-blur-md border border-slate-700/50 flex gap-1">
                   <button onClick={() => setActiveTab('create')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'create' ? 'bg-cyan-500 text-slate-900 shadow-lg' : 'text-slate-400 hover:text-white'}`}><i className="ph ph-pencil-simple text-base"></i> Editor AI</button>
-                  <button onClick={() => setActiveTab('history')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'history' ? 'bg-cyan-500 text-slate-900 shadow-lg' : 'text-slate-400 hover:text-white'}`}><i className="ph ph-clock-counter-clockwise text-base"></i> Riwayat Lokal</button>
+                  <button onClick={() => setActiveTab('history')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'history' ? 'bg-cyan-500 text-slate-900 shadow-lg' : 'text-slate-400 hover:text-white'}`}><i className="ph ph-clock-counter-clockwise text-base"></i> Riwayat Saya</button>
                 </div>
                 <button onClick={handleNewRecord} className="bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-400 border border-emerald-500/30 px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
                   <i className="ph ph-plus text-base"></i> <span className="hidden sm:inline">Buat Baru</span>
@@ -791,8 +850,8 @@
                       <i className="ph ph-file-text text-cyan-400 text-lg"></i> Live Preview Dokumen
                     </h2>
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={handleSaveLocal} disabled={isSaving} className="bg-emerald-600/80 border border-emerald-500/50 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-900/50">
-                        {isSaving ? <i className="ph ph-spinner ph-spin text-sm"></i> : <i className="ph ph-cloud-arrow-up text-sm"></i>} Simpan Lokal
+                      <button onClick={handleSaveToCloud} disabled={isSaving} className="bg-emerald-600/80 border border-emerald-500/50 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-900/50">
+                        {isSaving ? <i className="ph ph-spinner ph-spin text-sm"></i> : <i className="ph ph-cloud-arrow-up text-sm"></i>} Simpan ke Cloud
                       </button>
                       <button onClick={downloadWord} className="bg-blue-600/80 border border-blue-500/50 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/50">
                         <i className="ph ph-pencil-simple text-sm"></i> Ekspor Word
@@ -880,7 +939,7 @@
               {activeTab === 'history' && (
                 <div className="max-w-[1450px] mx-auto relative z-10 bg-slate-800/40 backdrop-blur-xl rounded-3xl shadow-xl border border-slate-700/50 p-6 md:p-10 min-h-[60vh]">
                   <h2 className="text-2xl font-bold text-white mb-8 flex items-center gap-3">
-                    <i className="ph ph-clock-counter-clockwise text-cyan-400 text-3xl"></i> Riwayat Lokal (Perangkat Ini)
+                    <i className="ph ph-clock-counter-clockwise text-cyan-400 text-3xl"></i> Riwayat Database Cloud
                   </h2>
                   
                   {isLoadingHistory ? (
