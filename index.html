@@ -44,10 +44,10 @@
         // ==========================================
         // 1. TEMPELKAN API KEY GEMINI ANDA DI SINI
         // ==========================================
-        const defaultApiKey = "AIzaSyBvv3gOZUszX3GoLt-g4PN1VdMP6d7wYTY"; 
+        const defaultApiKey = "AIzaSyBxUfMP36rJElE7UX2oLkB-Gz5bTv1W5Eg"; 
 
         // --- KONFIGURASI GOOGLE SHEETS & WA ADMIN ---
-        const GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbwan8bQO_lmnVrgnUga1401_VDzr0Odq6jvkeFM93TLUrqEwGMGQbjY6R87AxHWor7yCg/exec";
+        const GOOGLE_SHEETS_WEBHOOK = "https://script.google.com/macros/s/AKfycbwp1MHn8hMI_zNaXGnYWBAnGmOS8T8TIyCTEBmeMEZ9ekXuKFv9Ye5X1crt4k7anF90PQ/exec";
         const ADMIN_WA_NUMBER = "6287838960454"; 
 
         // ==========================================
@@ -365,7 +365,7 @@
 
             const isCanvasEnvironment = window.location.hostname.includes("google.com") || window.location.hostname === "";
             if (activeApiKey === "" && !isCanvasEnvironment) {
-              throw new Error("<b>Kunci API Masih Kosong!</b><br/><br/>Aplikasi mendeteksi Anda menjalankannya di Vercel, tetapi variabel <code>defaultApiKey</code> di dalam kode masih dibiarkan kosong.<br/><br/>Silakan isi Kunci API Anda di file kode lalu deploy ulang.");
+              throw new Error("<b>Kunci API Masih Kosong!</b><br/><br/>Aplikasi mendeteksi Anda menjalankannya di Vercel, tetapi Kunci API Anda belum dimasukkan ke dalam kode.<br/><br/><b>CARA MENDAPATKAN KUNCI API:</b><br/>1. Buka <a href='https://aistudio.google.com/app/apikey' target='_blank' style='color:#22d3ee;text-decoration:underline;'>Google AI Studio</a>.<br/>2. Klik <b>Create API Key</b>.<br/>3. Salin dan tempel ke variabel <code>defaultApiKey</code> di file kode Anda, lalu Deploy ulang.");
             }
 
             const contents = [{ parts: [{ text: prompt }] }];
@@ -407,7 +407,7 @@
 
                 if (error.message === "ERROR_429") {
                   if (retries === maxRetries) {
-                    throw new Error("<b>Server Sedang Penuh (Error 429).</b><br/><br/>Jatah API gratis Anda sudah melampaui batas hari ini. Gunakan Kunci API dari akun Google lain yang masih fresh.");
+                    throw new Error("<b>Limit Kuota Habis (Error 429).</b><br/><br/>Jatah penggunaan API gratis di akun Google Anda saat ini sudah melampaui batas harian.<br/><br/><b>CARA MENGATASINYA:</b><br/>1. Login menggunakan <b>Email Google yang berbeda</b>.<br/>2. Buka <a href='https://aistudio.google.com/app/apikey' target='_blank' style='color:#22d3ee;text-decoration:underline;'>Google AI Studio</a>.<br/>3. Buat Kunci API baru dan masukkan ke dalam kode Anda.");
                   }
                   setStatusMessage(`Menunggu antrean server (Tahap ${retries})...`);
                   await new Promise(res => setTimeout(res, delays[retries - 1]));
